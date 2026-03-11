@@ -249,7 +249,7 @@
              </div>
 
              <!-- Daily Summary -->
-             <div class="bg-white p-4 rounded-lg shadow-sm">
+             <div class="bg-white p-4 rounded-lg shadow-sm mb-6">
                 <h3 class="font-semibold text-lg mb-3">สรุปรายวัน</h3>
                 <input type="date" id="summary-date-picker" class="block w-full mb-3 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none sm:text-sm">
                 <div id="summary-content" class="p-3 bg-gray-50 rounded-md text-sm">
@@ -259,6 +259,29 @@
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" /></svg>
                     ส่งรายงานไป LINE
                 </button>
+             </div>
+
+             <!-- Troll Feature Settings -->
+             <div class="bg-white p-4 rounded-lg shadow-sm">
+                 <h3 class="font-semibold text-lg text-red-600 mb-3 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    ลงโทษพนักงาน (หยอกๆ)
+                 </h3>
+                 <p class="text-xs text-gray-500 mb-3">แกล้งพนักงานให้กดยอมรับขอโทษ 30 ครั้งก่อนทำการเช็คอิน</p>
+                 <div class="flex gap-2 mb-3">
+                    <input type="text" id="troll-name-input" placeholder="กรอกชื่อพนักงาน" class="flex-grow block px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none sm:text-sm">
+                    <button id="add-troll-btn" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md font-medium text-sm transition">
+                        เพิ่มชื่อ
+                    </button>
+                 </div>
+                 <div id="troll-list-container" class="space-y-2 mb-4">
+                     <!-- รายชื่อคนโดนทำโทษจะมาอยู่ตรงนี้ -->
+                 </div>
+                 <button id="save-troll-btn" class="w-full bg-gray-800 text-white font-medium py-2 px-4 rounded-md hover:bg-gray-900 transition">
+                    บันทึกรายชื่อคนดื้อ
+                 </button>
              </div>
         </main>
         
@@ -324,6 +347,26 @@
         </button>
     </div>
 
+    <!-- Troll Punishment Modal (หน้าต่างทำโทษพนักงานดื้อ 😝) -->
+    <div id="troll-modal" class="hidden fixed inset-0 bg-red-50 flex items-center justify-center z-[60] p-6">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl text-center max-w-sm w-full border-t-8 border-red-500 transform transition-all">
+            <div class="text-6xl mb-4 animate-bounce">😤</div>
+            <h3 class="text-2xl font-bold text-red-600 mb-2">หยุดก่อน! <span id="troll-target-name"></span></h3>
+            <p class="text-gray-700 mb-6 leading-relaxed">เนื่องจากคุณมีพฤติกรรมไม่เหมาะสมกับผู้ดูแลระบบ<br/>คุณต้องกดปุ่ม <b>"ขอโทษ"</b> ด้านล่างให้ครบ <br/><span class="text-red-500 font-bold text-xl">30 ครั้ง</span> จึงจะสามารถทำการเช็คอินได้! 👻</p>
+            
+            <div class="mb-6 relative">
+                 <div class="w-full bg-gray-200 rounded-full h-4 mb-2">
+                    <div id="troll-progress-bar" class="bg-red-500 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+                 </div>
+                 <p class="text-sm font-semibold text-gray-500">เหลือกดอีก: <span id="troll-counter-display" class="text-red-600 font-bold text-xl">30</span> ครั้ง</p>
+            </div>
+
+            <button id="troll-sorry-btn" class="w-full bg-gradient-to-r from-red-500 to-pink-500 text-white font-black text-xl py-4 flex items-center justify-center gap-2 rounded-xl shadow-[0_5px_0_1px_#c53030] hover:shadow-[0_2px_0_1px_#c53030] hover:translate-y-1 active:shadow-none active:translate-y-2 transition-all">
+                🙏 ขอโทษคร๊าบบ/ค่าา
+            </button>
+        </div>
+    </div>
+
 
 <script>
 document.addEventListener('DOMContentLoaded', () => {
@@ -337,8 +380,10 @@ document.addEventListener('DOMContentLoaded', () => {
         currentLocation: null,
         imageBase64: null,
         isAdmin: false,
+        trollList: [], // เพิ่มรายชื่อพนักงานที่เตรียมโดนแกง
     };
 
+    let trollCounter = 30; // จำนวนรอบที่ต้องกดขอโทษ
     let activeFilterClass = 'filter-beauty'; // ค่าเริ่มต้น: เนียนสวย
     let clockInterval = null; // เก็บ ID ของ setInterval เพื่อ clear ตอน logout
 
@@ -393,6 +438,11 @@ document.addEventListener('DOMContentLoaded', () => {
         summaryDatePicker: document.getElementById('summary-date-picker'),
         summaryContent: document.getElementById('summary-content'),
         sendLineReportBtn: document.getElementById('send-line-report-btn'),
+        // Troll Selectors
+        trollNameInput: document.getElementById('troll-name-input'),
+        addTrollBtn: document.getElementById('add-troll-btn'),
+        trollListContainer: document.getElementById('troll-list-container'),
+        saveTrollBtn: document.getElementById('save-troll-btn'),
     };
     const cameraModal = {
         modal: document.getElementById('camera-modal'),
@@ -417,6 +467,13 @@ document.addEventListener('DOMContentLoaded', () => {
         modal: document.getElementById('image-viewer-modal'),
         image: document.getElementById('full-image'),
         closeButton: document.getElementById('close-image-viewer-btn'),
+    };
+    const trollModal = {
+        modal: document.getElementById('troll-modal'),
+        targetName: document.getElementById('troll-target-name'),
+        progressBar: document.getElementById('troll-progress-bar'),
+        counterDisplay: document.getElementById('troll-counter-display'),
+        sorryBtn: document.getElementById('troll-sorry-btn'),
     };
 
     // --- UI HELPER FUNCTIONS ---
@@ -499,7 +556,16 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await runGas('loginWithPin', { pin: enteredPin });
             if (result.success) {
                 state.currentUser = result.name;
-                startApp();
+                
+                // --- เพิ่มระบบตรวจสอบว่าติดทำโทษหรือไม่ ---
+                const trollCheckResult = await runGas('getTrollList');
+                if (trollCheckResult && trollCheckResult.success && trollCheckResult.trollList.includes(state.currentUser)) {
+                    hideLoading();
+                    showTrollModal(); // เรียกหน้าทำโทษ
+                } else {
+                    startApp(); // ปกติ
+                }
+                
             } else {
                 showMessage('เข้าสู่ระบบล้มเหลว', result.message, false);
                 loginPage.pinInput.value = '';
@@ -555,6 +621,40 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
     
+    // --- TROLL FEATURE LOGIC ---
+    const showTrollModal = () => {
+        trollCounter = 30; // รีเซ็ตการนับทุกครั้งที่มาหน้านี้
+        trollModal.targetName.textContent = state.currentUser;
+        trollModal.counterDisplay.textContent = trollCounter;
+        trollModal.progressBar.style.width = '0%';
+        trollModal.modal.classList.remove('hidden');
+    };
+
+    trollModal.sorryBtn.addEventListener('click', () => {
+        trollCounter--;
+        if (trollCounter > 0) {
+            trollModal.counterDisplay.textContent = trollCounter;
+            
+            // ทำให้ปุ่มสั่นหรือกระพริบเบาๆ ทุกครั้งที่กด จะได้ดูอินๆ
+            trollModal.sorryBtn.classList.add('scale-95', 'bg-red-600');
+            setTimeout(() => { trollModal.sorryBtn.classList.remove('scale-95', 'bg-red-600'); }, 100);
+            
+            // อัปเดต % หลอดความโกรธ
+            const percent = ((30 - trollCounter) / 30) * 100;
+            trollModal.progressBar.style.width = `${percent}%`;
+            
+            // เปลี่ยนสีหลอดให้ดูดีขึ้นเรื่อยๆ
+            if (percent > 66) trollModal.progressBar.classList.replace('bg-red-500', 'bg-green-500');
+            else if (percent > 33) trollModal.progressBar.classList.replace('bg-red-500', 'bg-yellow-500');
+
+        } else {
+            // กดครบแล้ว!!!
+            trollModal.modal.classList.add('hidden');
+            showMessage('อ่ะ ยอมให้ก็ได้', 'คราวหลังทำตัวดีๆ นะ เข้าใจไหม! 😤', true);
+            startApp(); // เข้าสู่แอปปกติ
+        }
+    });
+
     // --- MAIN PAGE LOGIC ---
     const startClock = () => {
         if (clockInterval) clearInterval(clockInterval);
@@ -895,7 +995,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data && data.success && data.locations) state.locations = data.locations;
             } catch (_) {}
         }
+        // โหลด Troll List
+        if (state.trollList.length === 0) {
+             adminPage.trollListContainer.innerHTML = '<p class="text-gray-500">กำลังโหลด...</p>';
+             try {
+                 const trollData = await runGas('getTrollList');
+                 if(trollData && trollData.success) {
+                      state.trollList = trollData.trollList || [];
+                 }
+             } catch(_) {}
+        }
+
         renderLocationSettings();
+        renderTrollList(); // เรนเดอร์หน้าแอดมิน
         const today = new Date().toISOString().split('T')[0];
         adminPage.summaryDatePicker.value = today;
         fetchAdminSummary(today);
@@ -980,6 +1092,52 @@ document.addEventListener('DOMContentLoaded', () => {
             const result = await runGas('saveLocationSettings', state.locations);
             showMessage(result.success ? 'สำเร็จ' : 'ผิดพลาด', result.message, result.success);
         } catch(e) { showMessage('ผิดพลาด', 'การเชื่อมต่อล้มเหลว', false); } 
+        finally { hideLoading(); }
+    });
+
+    // --- ADMIN TROLL LIST LOGIC ---
+    const renderTrollList = () => {
+        adminPage.trollListContainer.innerHTML = '';
+        if (state.trollList.length === 0) {
+            adminPage.trollListContainer.innerHTML = '<p class="text-sm text-gray-500 italic">ยังไม่มีใครโดนทำโทษ</p>';
+            return;
+        }
+        
+        state.trollList.forEach((name, index) => {
+            const item = document.createElement('div');
+            item.className = 'flex justify-between items-center bg-gray-50 p-2 rounded border border-gray-200';
+            item.innerHTML = `
+                <span class="font-medium text-gray-800">${name}</span>
+                <button data-index="${index}" class="remove-troll-btn text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 rounded p-1 transition">ลบ</button>
+            `;
+            adminPage.trollListContainer.appendChild(item);
+        });
+    };
+
+    adminPage.addTrollBtn.addEventListener('click', () => {
+        const name = adminPage.trollNameInput.value.trim();
+        if (!name) return showMessage('แจ้งเตือน', 'กรุณาใส่ชื่อพนักงาน', false);
+        if (state.trollList.includes(name)) return showMessage('ซ้ำ', 'มีชื่อพนักงานคนนี้อยู่แล้ว', false);
+
+        state.trollList.push(name);
+        adminPage.trollNameInput.value = '';
+        renderTrollList();
+    });
+
+    adminPage.trollListContainer.addEventListener('click', (e) => {
+        if (e.target.classList.contains('remove-troll-btn')) {
+            const index = parseInt(e.target.dataset.index, 10);
+            state.trollList.splice(index, 1);
+            renderTrollList();
+        }
+    });
+
+    adminPage.saveTrollBtn.addEventListener('click', async () => {
+        showLoading('กำลังบันทึกรายชื่อคนดื้อ...');
+        try {
+            const result = await runGas('saveTrollList', { trollList: state.trollList });
+            showMessage(result.success ? 'แจ่ม!' : 'ผิดพลาด', result.message, result.success);
+        } catch(e) { showMessage('ผิดพลาด', 'เชื่อมต่อล้มเหลว', false); } 
         finally { hideLoading(); }
     });
 
