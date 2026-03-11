@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>KP SHOP Check-in</title>
+    <!-- เร่งโหลด CDN ด้วย preconnect -->
+    <link rel="preconnect" href="https://cdn.tailwindcss.com">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <script>
+      // ==========================================
+      // ตั้งค่ารหัสผ่านและการเชื่อมต่อกับ Backend (Google Apps Script)
+      // ==========================================
+      const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwA_m8C1m0I8_n25g7WJDGCvQC2d9OBmrZkB0avLDfVl-nCxW3BNxcBoEqJjlz0Tk4/exec"; // <-- นำ URL จากการ Deploy Web App มาใส่ตรงนี้
+      const API_KEY = "kpshop_168"; // <-- ต้องตรงกับใน Code.gs
+    </script>
+    <style>
+        body {
+            font-family: 'Kanit', sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .app-container {
+            max-width: 480px;
+            margin: auto;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .page {
+            display: none;
+        }
+        .page.active {
+            display: flex;
+            flex-direction: column;
+            flex-grow: 1;
+        }
+        .btn-status.active {
+            background-color: #1D4ED8; /* bg-blue-700 */
+            color: white;
+            border-color: #1D4ED8;
+        }
+        /* Custom scrollbar for history */
+        .history-list::-webkit-scrollbar { width: 5px; }
+        .history-list::-webkit-scrollbar-track { background: #f1f1f1; }
+        .history-list::-webkit-scrollbar-thumb { background: #888; border-radius: 6px;}
+        .history-list::-webkit-scrollbar-thumb:hover { background: #555; }
+        
+        /* Camera Modal styles */
+        #camera-modal video {
+            transform: scaleX(-1); /* Mirror effect */
+        }
+        #camera-modal video.filter-none { filter: none; }
+        #camera-modal video.filter-soft { filter: contrast(1.1) saturate(1.1) brightness(1.05); }
+        #camera-modal video.filter-bright { filter: brightness(1.2) contrast(1.05); }
+        #camera-modal video.filter-vivid { filter: saturate(1.4) contrast(1.1); }
+        /* ฟิลเตอร์เนียนสวย: ลด contrast ให้ผิวดูเรียบ อ่อนโยน */
+        #camera-modal video.filter-beauty { filter: contrast(0.9) brightness(1.1) saturate(1.05); }
+        /* ฟิลเตอร์โทนอุ่น: อบอุ่น นุ่มนวล */
+        #camera-modal video.filter-warm { filter: sepia(0.15) saturate(1.2) brightness(1.05); }
+
+        .filter-btn.active {
+            border-color: #3B82F6; /* blue-500 */
+            transform: scale(1.1);
+        }
+        
+        #photo-preview {
+            transform: scaleX(-1); /* Mirror effect for preview */
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div id="app-container" class="app-container bg-white shadow-lg">
+
+        <!-- Header -->
+        <header class="bg-white shadow-md p-4 flex items-center justify-between sticky top-0 z-20">
+            <div class="flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 text-blue-600" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clip-rule="evenodd" />
+                </svg>
+                <h1 class="text-xl font-bold text-gray-800">KP SHOP</h1>
+            </div>
+            <div class="flex items-center gap-2">
+                <button id="admin-access-btn" class="p-2 rounded-full hover:bg-gray-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-gray-600" viewBox="0 0 20 20" fill="currentColor">
+                      <path fill-rule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.964.062 2.208-.948 2.287-1.56.38-1.56 2.6 0 2.98.99.248 1.487 1.323.948 2.287-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.948c.38 1.56 2.6 1.56 2.98 0a1.532 1.532 0 012.287-.948c1.372.836 2.942-.734 2.106-2.106a1.532 1.532 0 01.948-2.287c1.56-.38 1.56-2.6 0-2.98a1.532 1.532 0 01-.948-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.948zM10 13a3 3 0 100-6 3 3 0 000 6z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+                 <button id="logout-btn" class="p-2 rounded-full hover:bg-gray-200 hidden">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- ===== LOGIN PAGE ===== -->
+        <main id="login-page" class="page active p-6 flex-grow justify-center">
+            <div class="w-full">
+                <h2 class="text-2xl font-semibold text-center text-gray-800 mb-2">ยินดีต้อนรับ</h2>
+                <p class="text-center text-gray-500 mb-8">กรุณากรอกรหัสพนักงาน 5 หลัก</p>
+                
+                <div class="space-y-6">
+                    <div>
+                        <label for="login-pin-input" class="block text-sm font-medium text-gray-700">รหัสพนักงาน 5 หลัก</label>
+                        <!-- ใช้ border border-gray-300 เส้นบางๆ สีเทาอ่อน ตามเดิม -->
+                        <input type="password" id="login-pin-input" autocomplete="off" maxlength="5" pattern="\d{5}" inputmode="numeric" class="mt-1 block w-full p-3 text-center text-2xl tracking-[.5em] border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md shadow-sm text-gray-900">
+                    </div>
+                </div>
+
+                <button id="login-button" class="mt-10 w-full bg-blue-600 text-white font-bold py-4 px-4 rounded-lg shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-300 ease-in-out transform hover:-translate-y-1">
+                    เข้าสู่ระบบ
+                </button>
+            </div>
+        </main>
+        
+        <!-- ===== MAIN CHECK-IN PAGE ===== -->
+        <main id="main-page" class="page p-4 flex-grow">
+            <div class="bg-gray-50 rounded-lg p-4 mb-4 shadow-inner">
+                <h2 class="text-xl font-semibold text-gray-800">บันทึกเวลาทำงาน</h2>
+                <p id="current-user-display" class="text-gray-600">สวัสดี, กำลังโหลด...</p>
+                <p id="current-datetime" class="text-blue-600 font-medium mt-1">--/--/---- --:--</p>
+            </div>
+
+            <div class="space-y-5 flex-grow">
+                <!-- Status Selection -->
+                <div>
+                    <h3 class="font-medium text-gray-700 mb-2">1. เลือกสถานะ</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <button data-status="เข้างาน" class="btn-status flex flex-col items-center justify-center p-4 border-2 border-gray-300 rounded-lg shadow-sm transition-all duration-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mb-2 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" /></svg>
+                            <span class="font-semibold">เข้างาน</span>
+                        </button>
+                        <button data-status="ออกงาน" class="btn-status flex flex-col items-center justify-center p-4 border-2 border-gray-300 rounded-lg shadow-sm transition-all duration-200">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8 mb-2 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" /></svg>
+                            <span class="font-semibold">ออกงาน</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Location -->
+                <div>
+                     <h3 class="font-medium text-gray-700 mb-2">2. ตำแหน่งปัจจุบัน (บังคับ)</h3>
+                     <div id="location-display" class="flex items-center p-3 bg-gray-100 rounded-lg text-gray-600 min-h-[50px]">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-3 text-gray-400 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" /></svg>
+                        <span id="location-text">กำลังค้นหาตำแหน่ง...</span>
+                     </div>
+                     <p id="location-error" class="text-red-500 text-sm mt-1 hidden">กรุณาอนุญาตให้เข้าถึงตำแหน่ง</p>
+                     <p id="location-distance-warning" class="text-amber-600 text-sm mt-1 hidden">คุณอยู่นอกพื้นที่ที่กำหนด!</p>
+                </div>
+                
+                <!-- Photo -->
+                <div>
+                    <h3 class="font-medium text-gray-700 mb-2">3. ถ่ายรูป (บังคับ)</h3>
+                    <button id="open-camera-btn" class="w-full flex items-center justify-center p-4 border-2 border-dashed border-gray-300 rounded-lg text-gray-500 hover:bg-gray-50 transition">
+                         <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        <span>เปิดกล้องเพื่อถ่ายรูป</span>
+                    </button>
+                    <!-- *** เพิ่มปุ่มถ่ายใหม่ในส่วนนี้ *** -->
+                    <div id="photo-preview-container" class="hidden mt-3 text-center">
+                        <div class="relative inline-block">
+                             <img id="photo-preview" class="w-32 h-32 object-cover rounded-lg shadow-md border-2 border-gray-200">
+                        </div>
+                        <div class="mt-2">
+                             <button id="retake-photo-btn" class="text-sm text-red-500 hover:text-red-700 font-medium underline flex items-center justify-center gap-1 mx-auto transition-colors">
+                                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                </svg>
+                                ถ่ายใหม่
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Submit Button -->
+            <div class="mt-auto pt-4">
+                <button id="submit-btn" class="w-full bg-blue-600 text-white font-bold py-4 px-4 rounded-lg shadow-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none transform hover:-translate-y-1">
+                    บันทึกเวลา
+                </button>
+            </div>
+        </main>
+        
+        <!-- ===== HISTORY PAGE ===== -->
+        <main id="history-page" class="page p-4 flex-grow bg-gray-50">
+            <h2 class="text-xl font-semibold text-gray-800 mb-4 px-2">ประวัติการลงเวลา</h2>
+
+            <!-- Filters -->
+            <div class="flex flex-col gap-3 mb-4 px-2">
+                <select id="history-name-filter" class="w-full block pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md shadow-sm">
+                    <option value="">พนักงานทั้งหมด</option>
+                </select>
+                <input type="date" id="history-date-filter" class="w-full block px-3 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md shadow-sm">
+            </div>
+
+            <!-- History List -->
+            <div id="history-list" class="history-list flex-grow overflow-y-auto space-y-3 p-2 -mx-2">
+                <p id="history-placeholder" class="text-center text-gray-500 mt-8">ไม่มีข้อมูล</p>
+            </div>
+        </main>
+        
+        <!-- ===== ADMIN LOGIN PAGE ===== -->
+        <main id="admin-login-page" class="page p-6 flex-grow justify-center">
+             <div class="w-full">
+                <h2 class="text-2xl font-semibold text-center text-gray-800 mb-8">สำหรับผู้ดูแลระบบ</h2>
+                <div>
+                    <label for="admin-password-input" class="block text-sm font-medium text-gray-700">รหัสผ่าน</label>
+                    <input type="password" id="admin-password-input" class="mt-1 block w-full p-3 text-center border border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md shadow-sm text-gray-900">
+                </div>
+                <button id="admin-login-button" class="mt-6 w-full bg-gray-800 text-white font-bold py-3 px-4 rounded-lg shadow-lg hover:bg-gray-900 focus:outline-none">
+                    เข้าสู่ระบบ
+                </button>
+            </div>
+        </main>
+
+        <!-- ===== ADMIN PAGE ===== -->
+        <main id="admin-page" class="page p-4 flex-grow bg-gray-50">
+             <h2 class="text-xl font-semibold text-gray-800 mb-4">หน้าผู้ดูแลระบบ</h2>
+
+             <!-- Location Settings -->
+             <div class="bg-white p-4 rounded-lg shadow-sm mb-6">
+                <h3 class="font-semibold text-lg mb-3">ตั้งค่าพิกัดสาขา</h3>
+                <div id="location-settings-list" class="space-y-3 mb-4"></div>
+
+                <div class="bg-gray-50 p-3 rounded-md border">
+                    <h4 class="font-medium mb-2">เพิ่มสาขาใหม่</h4>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="text" id="new-location-name" placeholder="ชื่อสาขา" class="col-span-2 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none sm:text-sm">
+                        <input type="number" step="any" id="new-location-lat" placeholder="ละติจูด" class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none sm:text-sm">
+                        <input type="number" step="any" id="new-location-lng" placeholder="ลองจิจูด" class="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none sm:text-sm">
+                        <input type="number" id="new-location-radius" placeholder="รัศมี (เมตร)" value="100" class="col-span-2 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none sm:text-sm">
+                    </div>
+                    <div class="flex gap-2 mt-2">
+                         <button id="add-manual-location-btn" class="w-full flex justify-center items-center gap-2 p-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 text-sm">
+                            <span>เพิ่มด้วยตนเอง</span>
+                        </button>
+                        <button id="add-location-from-gps" class="w-full flex justify-center items-center gap-2 p-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 text-sm">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd" /></svg>
+                            <span>ดึงพิกัดปัจจุบัน</span>
+                        </button>
+                    </div>
+                </div>
+                 <button id="save-locations-btn" class="mt-4 w-full bg-blue-600 text-white font-medium py-2 px-4 rounded-md hover:bg-blue-700">
+                    บันทึกการตั้งค่าพิกัด
+                </button>
+             </div>
+
+             <!-- Daily Summary -->
+             <div class="bg-white p-4 rounded-lg shadow-sm">
+                <h3 class="font-semibold text-lg mb-3">สรุปรายวัน</h3>
+                <input type="date" id="summary-date-picker" class="block w-full mb-3 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none sm:text-sm">
+                <div id="summary-content" class="p-3 bg-gray-50 rounded-md text-sm">
+                    <p>กำลังโหลดข้อมูล...</p>
+                </div>
+                 <button id="send-line-report-btn" class="mt-4 w-full bg-green-600 text-white font-medium py-2 px-4 rounded-md hover:bg-green-700 flex items-center justify-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z" /></svg>
+                    ส่งรายงานไป LINE
+                </button>
+             </div>
+        </main>
+        
+        <!-- Navigation -->
+        <nav id="bottom-nav" class="bg-white shadow-[0_-1px_3px_rgba(0,0,0,0.1)] p-2 flex justify-around sticky bottom-0 z-20 hidden">
+             <button data-page="main-page" class="nav-btn flex-1 flex flex-col items-center justify-center p-2 rounded-lg text-blue-600">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <span class="text-xs font-medium">ลงเวลา</span>
+            </button>
+            <button data-page="history-page" class="nav-btn flex-1 flex flex-col items-center justify-center p-2 rounded-lg text-gray-500">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clip-rule="evenodd" /></svg>
+                <span class="text-xs font-medium">ประวัติ</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- ===== MODALS ===== -->
+    <!-- Loading Modal -->
+    <div id="loading-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white p-6 rounded-lg flex items-center gap-4 shadow-xl">
+            <svg class="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+            <span id="loading-text" class="text-lg font-medium text-gray-700">กำลังประมวลผล...</span>
+        </div>
+    </div>
+
+    <!-- Message Modal -->
+    <div id="message-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white p-8 rounded-2xl shadow-xl text-center max-w-sm w-full">
+            <div id="message-icon" class="mx-auto mb-4"></div>
+            <h3 id="message-title" class="text-2xl font-bold text-gray-800 mb-2"></h3>
+            <p id="message-body" class="text-gray-600 mb-6"></p>
+            <button id="message-close-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-lg shadow-lg hover:bg-blue-700">ตกลง</button>
+        </div>
+    </div>
+
+    <!-- Camera Modal -->
+    <div id="camera-modal" class="hidden fixed inset-0 bg-black z-40 flex flex-col items-center justify-center">
+        <video id="camera-video" class="w-full h-full object-cover" autoplay playsinline></video>
+        <canvas id="camera-canvas" class="hidden"></canvas>
+        
+        <div class="absolute bottom-24 left-0 right-0 p-4 flex justify-center items-center gap-2 flex-wrap" id="filter-options">
+            <button data-filter="filter-none" class="filter-btn h-11 w-11 rounded-full bg-white/20 border-2 border-transparent text-white text-[10px] flex items-center justify-center transition-transform">ไม่มี</button>
+            <button data-filter="filter-soft" class="filter-btn h-11 w-11 rounded-full bg-white/20 border-2 border-transparent text-white text-[10px] flex items-center justify-center transition-transform">ละมุน</button>
+            <button data-filter="filter-beauty" class="filter-btn h-11 w-11 rounded-full bg-white/20 border-2 border-transparent text-white text-[10px] flex items-center justify-center transition-transform">เนียนสวย</button>
+            <button data-filter="filter-warm" class="filter-btn h-11 w-11 rounded-full bg-white/20 border-2 border-transparent text-white text-[10px] flex items-center justify-center transition-transform">โทนอุ่น</button>
+            <button data-filter="filter-bright" class="filter-btn h-11 w-11 rounded-full bg-white/20 border-2 border-transparent text-white text-[10px] flex items-center justify-center transition-transform">สว่าง</button>
+            <button data-filter="filter-vivid" class="filter-btn h-11 w-11 rounded-full bg-white/20 border-2 border-transparent text-white text-[10px] flex items-center justify-center transition-transform">สดใส</button>
+        </div>
+
+        <div class="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/50 to-transparent flex justify-center">
+            <button id="capture-btn" class="w-20 h-20 bg-white rounded-full border-4 border-gray-300 focus:outline-none shadow-lg"></button>
+        </div>
+        <button id="close-camera-btn" class="absolute top-4 right-4 p-3 bg-black/40 text-white rounded-full">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+    </div>
+
+    <!-- Full Screen Image Modal -->
+    <div id="image-viewer-modal" class="hidden fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50 p-4">
+        <img id="full-image" src="" class="max-w-full max-h-full object-contain">
+        <button id="close-image-viewer-btn" class="absolute top-4 right-4 p-3 bg-black/40 text-white rounded-full">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+    </div>
+
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+
+    // --- STATE MANAGEMENT ---
+    const state = {
+        employees: [],
+        locations: [],
+        currentUser: null,
+        selectedStatus: null,
+        currentLocation: null,
+        imageBase64: null,
+        isAdmin: false,
+    };
+
+    let activeFilterClass = 'filter-beauty'; // ค่าเริ่มต้น: เนียนสวย
+    let clockInterval = null; // เก็บ ID ของ setInterval เพื่อ clear ตอน logout
+
+    // --- ELEMENT SELECTORS ---
+    const pages = document.querySelectorAll('.page');
+    const navButtons = document.querySelectorAll('.nav-btn');
+    const bottomNav = document.getElementById('bottom-nav');
+    const logoutBtn = document.getElementById('logout-btn');
+    const loginPage = {
+        page: document.getElementById('login-page'),
+        pinInput: document.getElementById('login-pin-input'),
+        loginButton: document.getElementById('login-button'),
+    };
+    const mainPage = {
+        page: document.getElementById('main-page'),
+        userDisplay: document.getElementById('current-user-display'),
+        datetimeDisplay: document.getElementById('current-datetime'),
+        statusButtons: document.querySelectorAll('.btn-status'),
+        locationDisplay: document.getElementById('location-display'),
+        locationText: document.getElementById('location-text'),
+        locationError: document.getElementById('location-error'),
+        locationDistanceWarning: document.getElementById('location-distance-warning'),
+        openCameraButton: document.getElementById('open-camera-btn'),
+        photoPreviewContainer: document.getElementById('photo-preview-container'),
+        photoPreview: document.getElementById('photo-preview'),
+        submitButton: document.getElementById('submit-btn'),
+        retakeButton: document.getElementById('retake-photo-btn'), // New Selector for Retake Button
+    };
+    const historyPage = {
+        page: document.getElementById('history-page'),
+        nameFilter: document.getElementById('history-name-filter'),
+        dateFilter: document.getElementById('history-date-filter'),
+        list: document.getElementById('history-list'),
+        placeholder: document.getElementById('history-placeholder'),
+    };
+    const adminAccessBtn = document.getElementById('admin-access-btn');
+    const adminLoginPage = {
+        page: document.getElementById('admin-login-page'),
+        passwordInput: document.getElementById('admin-password-input'),
+        loginButton: document.getElementById('admin-login-button'),
+    };
+    const adminPage = {
+        page: document.getElementById('admin-page'),
+        locationList: document.getElementById('location-settings-list'),
+        newLocationNameInput: document.getElementById('new-location-name'),
+        newLocationLatInput: document.getElementById('new-location-lat'),
+        newLocationLngInput: document.getElementById('new-location-lng'),
+        newLocationRadiusInput: document.getElementById('new-location-radius'),
+        addManualLocationBtn: document.getElementById('add-manual-location-btn'),
+        addLocationBtn: document.getElementById('add-location-from-gps'),
+        saveLocationsBtn: document.getElementById('save-locations-btn'),
+        summaryDatePicker: document.getElementById('summary-date-picker'),
+        summaryContent: document.getElementById('summary-content'),
+        sendLineReportBtn: document.getElementById('send-line-report-btn'),
+    };
+    const cameraModal = {
+        modal: document.getElementById('camera-modal'),
+        video: document.getElementById('camera-video'),
+        canvas: document.getElementById('camera-canvas'),
+        captureButton: document.getElementById('capture-btn'),
+        closeButton: document.getElementById('close-camera-btn'),
+        filterOptions: document.getElementById('filter-options'),
+    };
+    const loadingModal = {
+        modal: document.getElementById('loading-modal'),
+        text: document.getElementById('loading-text'),
+    };
+    const messageModal = {
+        modal: document.getElementById('message-modal'),
+        icon: document.getElementById('message-icon'),
+        title: document.getElementById('message-title'),
+        body: document.getElementById('message-body'),
+        closeButton: document.getElementById('message-close-btn'),
+    };
+    const imageViewerModal = {
+        modal: document.getElementById('image-viewer-modal'),
+        image: document.getElementById('full-image'),
+        closeButton: document.getElementById('close-image-viewer-btn'),
+    };
+
+    // --- UI HELPER FUNCTIONS ---
+    const showPage = (pageId) => {
+        pages.forEach(p => p.classList.remove('active'));
+        document.getElementById(pageId).classList.add('active');
+
+        navButtons.forEach(btn => {
+            btn.classList.toggle('text-blue-600', btn.dataset.page === pageId);
+            btn.classList.toggle('text-gray-500', btn.dataset.page !== pageId);
+        });
+        
+        const nonNavPages = ['login-page', 'admin-login-page'];
+        if (nonNavPages.includes(pageId)) {
+            bottomNav.classList.add('hidden');
+            adminAccessBtn.classList.remove('hidden');
+            logoutBtn.classList.add('hidden');
+        } else {
+            bottomNav.classList.remove('hidden');
+            logoutBtn.classList.remove('hidden');
+            if(pageId === 'admin-page') {
+                bottomNav.classList.add('hidden');
+            }
+        }
+    };
+    
+    const showLoading = (text = 'กำลังประมวลผล...') => {
+        loadingModal.text.textContent = text;
+        loadingModal.modal.classList.remove('hidden');
+    };
+
+    const hideLoading = () => {
+        loadingModal.modal.classList.add('hidden');
+    };
+
+    const showMessage = (title, body, isSuccess = true) => {
+        messageModal.title.textContent = title;
+        messageModal.body.textContent = body;
+        const iconSvg = isSuccess ? 
+            `<svg class="w-16 h-16 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>` :
+            `<svg class="w-16 h-16 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+        messageModal.icon.innerHTML = iconSvg;
+        messageModal.modal.classList.remove('hidden');
+    };
+    messageModal.closeButton.addEventListener('click', () => messageModal.modal.classList.add('hidden'));
+
+    // --- INITIALIZATION ---
+    // โหลดเบาๆ ตอนเปิด: ไม่เรียก Google Sheets เพื่อให้หน้าแรก (ล็อกอิน) ขึ้นทันที
+    // จะโหลด locations เมื่อล็อกอินสำเร็จใน startApp แทน
+    const initialize = async () => {
+        // ไม่โหลดอะไรจาก Server ตอนเริ่ม - แสดงหน้าล็อกอินทันที
+        // state.locations จะถูกโหลดใน startApp() หลังจากล็อกอินสำเร็จ
+    };
+
+    const populateEmployeeSelect = (selectElement, firstOptionText) => {
+        selectElement.innerHTML = '';
+        if(firstOptionText){
+             const defaultOption = document.createElement('option');
+             defaultOption.value = '';
+             defaultOption.textContent = firstOptionText;
+             selectElement.appendChild(defaultOption);
+        }
+        state.employees.forEach(emp => {
+            const option = document.createElement('option');
+            option.value = emp.name;
+            option.textContent = emp.name;
+            selectElement.appendChild(option);
+        });
+    };
+
+    // --- LOGIN & LOGOUT LOGIC ---
+    loginPage.loginButton.addEventListener('click', async () => {
+        const enteredPin = loginPage.pinInput.value;
+        if (!enteredPin) {
+            showMessage('ข้อมูลไม่ครบ', 'กรุณากรอกรหัสพนักงาน', false); return;
+        }
+
+        showLoading('กำลังตรวจสอบรหัส...');
+        try {
+            const result = await runGas('loginWithPin', { pin: enteredPin });
+            if (result.success) {
+                state.currentUser = result.name;
+                startApp();
+            } else {
+                showMessage('เข้าสู่ระบบล้มเหลว', result.message, false);
+                loginPage.pinInput.value = '';
+            }
+        } catch (error) {
+             showMessage('เกิดข้อผิดพลาด', 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้', false);
+        } finally {
+            hideLoading();
+        }
+    });
+
+    /**
+     * แก้ไขฟังก์ชัน Logout:
+     * แทนที่จะใช้ location.reload() ซึ่งอาจทำให้เกิดหน้าขาว
+     * เราจะใช้วิธีรีเซ็ตค่า State ของแอปด้วยตนเอง
+     * และเรียกใช้ showPage('login-page') เพื่อกลับไปหน้าล็อกอินโดยตรง
+     * ซึ่งเป็นวิธีที่เสถียรและแน่นอนกว่า
+     */
+    const logout = () => {
+        if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
+        state.currentUser = null;
+        state.selectedStatus = null;
+        state.currentLocation = null;
+        state.imageBase64 = null;
+        state.isAdmin = false;
+        state.employees = [];
+        historyPage.nameFilter.innerHTML = '';
+        historyPage.nameFilter.disabled = false;
+        historyPage.dateFilter.value = '';
+        loginPage.pinInput.value = '';
+        showPage('login-page');
+    };
+    logoutBtn.addEventListener('click', logout);
+
+
+    const startApp = async () => {
+        mainPage.userDisplay.textContent = `สวัสดี, ${state.currentUser}`;
+        startClock();
+        getUserLocation();
+        showPage('main-page');
+        validateForm();
+
+        // โหลด locations หลังล็อกอิน (ในพื้นหลัง) เพื่อใช้ตรวจสอบรัศมี — ไม่บล็อกหน้า
+        if (state.locations.length === 0) {
+            runGas('getAppSettings')
+                .then((data) => {
+                    if (data && data.success && data.locations) {
+                        state.locations = data.locations;
+                        checkLocationRadius(); // อัปเดตคำเตือนถ้าพิกัดโหลดหลังตำแหน่ง
+                    }
+                })
+                .catch(() => { /* ถ้าโหลดไม่สำเร็จ จะ retry เมื่อกดบันทึก หรือเช็ค radius ครั้งถัดไป */ });
+        }
+    };
+    
+    // --- MAIN PAGE LOGIC ---
+    const startClock = () => {
+        if (clockInterval) clearInterval(clockInterval);
+        clockInterval = setInterval(() => {
+            const now = new Date();
+            const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+            mainPage.datetimeDisplay.textContent = now.toLocaleDateString('th-TH', options);
+        }, 1000);
+    };
+
+    const getUserLocation = () => {
+        if (!navigator.geolocation) {
+            mainPage.locationText.textContent = 'เบราว์เซอร์ไม่รองรับ Geolocation';
+            mainPage.locationError.classList.remove('hidden');
+            return;
+        }
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                const { latitude, longitude } = position.coords;
+                state.currentLocation = { lat: latitude, lng: longitude };
+                mainPage.locationText.textContent = `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
+                mainPage.locationError.classList.add('hidden');
+                checkLocationRadius();
+                validateForm();
+            },
+            () => {
+                mainPage.locationText.textContent = 'ไม่สามารถเข้าถึงตำแหน่งได้';
+                mainPage.locationError.classList.remove('hidden');
+                state.currentLocation = null;
+                validateForm();
+            },
+            { enableHighAccuracy: true }
+        );
+    };
+
+    const checkLocationRadius = () => {
+        if (!state.currentLocation || state.locations.length === 0) {
+            mainPage.locationDistanceWarning.classList.add('hidden');
+            return;
+        }
+        const R = 6371e3; // metres
+        const toRad = (v) => v * Math.PI / 180;
+        let isWithinRadius = false;
+        
+        for (const loc of state.locations) {
+            const φ1 = toRad(state.currentLocation.lat);
+            const φ2 = toRad(loc.lat);
+            const Δφ = toRad(loc.lat - state.currentLocation.lat);
+            const Δλ = toRad(loc.lng - state.currentLocation.lng);
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            const distance = R * c; // in metres
+
+            if (distance <= loc.radius) {
+                isWithinRadius = true;
+                break;
+            }
+        }
+        mainPage.locationDistanceWarning.classList.toggle('hidden', isWithinRadius);
+    };
+
+
+    mainPage.statusButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            mainPage.statusButtons.forEach(btn => btn.classList.remove('active'));
+            button.classList.add('active');
+            state.selectedStatus = button.dataset.status;
+            validateForm();
+        });
+    });
+
+    const validateForm = () => {
+        mainPage.submitButton.disabled = !(state.selectedStatus && state.currentLocation && state.imageBase64);
+    };
+    
+    // --- CAMERA LOGIC ---
+    let stream;
+    mainPage.openCameraButton.addEventListener('click', () => {
+        cameraModal.modal.classList.remove('hidden');
+        
+        activeFilterClass = 'filter-beauty'; // เริ่มต้นด้วยฟิลเตอร์เนียนสวย
+        cameraModal.video.className = `w-full h-full object-cover ${activeFilterClass}`;
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.filter === activeFilterClass);
+        });
+
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
+            .then(s => {
+                stream = s;
+                cameraModal.video.srcObject = stream;
+            })
+            .catch(err => {
+                showMessage('ข้อผิดพลาดกล้อง', 'ไม่สามารถเข้าถึงกล้องได้: ' + err.message, false);
+                cameraModal.modal.classList.add('hidden');
+            });
+    });
+
+    cameraModal.closeButton.addEventListener('click', () => {
+        cameraModal.modal.classList.add('hidden');
+        if (stream) stream.getTracks().forEach(track => track.stop());
+    });
+    
+    cameraModal.filterOptions.addEventListener('click', (e) => {
+        const target = e.target.closest('.filter-btn');
+        if (!target) return;
+
+        activeFilterClass = target.dataset.filter;
+        
+        cameraModal.video.className = `w-full h-full object-cover ${activeFilterClass}`;
+
+        document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+        target.classList.add('active');
+    });
+
+    cameraModal.captureButton.addEventListener('click', () => {
+        try {
+            const v = cameraModal.video, c = cameraModal.canvas;
+             if (!c || !v) {
+                 showMessage('ข้อผิดพลาด', 'องค์ประกอบกล้องไม่พร้อมใช้งาน', false);
+                return;
+            }
+            
+            // *** คงไว้: ตรวจสอบว่ากล้องพร้อมหรือยัง เพื่อแก้ปัญหา iPhone ***
+            if (v.readyState < 2) { // HAVE_CURRENT_DATA = 2
+                showMessage('รอก่อน', 'กล้องกำลังเตรียมพร้อม...', false);
+                return;
+            }
+            
+            if (v.videoWidth === 0 || v.videoHeight === 0) {
+                showMessage('ข้อผิดพลาด', 'กล้องยังไม่พร้อม โปรดลองอีกครั้ง', false);
+                return;
+            }
+            c.width = v.videoWidth; 
+            c.height = v.videoHeight;
+            const ctx = c.getContext('2d');
+            
+            const filters = {
+                'filter-none': 'none',
+                'filter-soft': 'contrast(1.1) saturate(1.1) brightness(1.05)',
+                'filter-beauty': 'contrast(0.9) brightness(1.1) saturate(1.05)',
+                'filter-warm': 'sepia(0.15) saturate(1.2) brightness(1.05)',
+                'filter-bright': 'brightness(1.2) contrast(1.05)',
+                'filter-vivid': 'saturate(1.4) contrast(1.1)'
+            };
+
+            ctx.filter = filters[activeFilterClass] || 'none';
+            ctx.drawImage(v, 0, 0, c.width, c.height);
+
+            state.imageBase64 = c.toDataURL('image/jpeg', 0.8);
+            mainPage.photoPreview.src = state.imageBase64;
+            mainPage.photoPreviewContainer.classList.remove('hidden');
+            mainPage.openCameraButton.classList.add('hidden');
+            validateForm();
+            cameraModal.closeButton.click();
+        } catch (error) {
+            showMessage('เกิดข้อผิดพลาด', `ไม่สามารถถ่ายรูปได้: ${error.message}`, false);
+            cameraModal.closeButton.click();
+        }
+    });
+
+    // --- RETAKE PHOTO LOGIC (Logic ส่วนถ่ายใหม่) ---
+    mainPage.retakeButton.addEventListener('click', () => {
+        state.imageBase64 = null;
+        mainPage.photoPreview.src = '';
+        mainPage.photoPreviewContainer.classList.add('hidden');
+        mainPage.openCameraButton.classList.remove('hidden');
+        validateForm();
+    });
+
+    // --- SUBMIT LOGIC ---
+    mainPage.submitButton.addEventListener('click', async () => {
+        if (mainPage.submitButton.disabled) return;
+        showLoading('กำลังบันทึกข้อมูล...');
+        try {
+            const result = await runGas('recordCheckInOut', {
+                name: state.currentUser,
+                status: state.selectedStatus,
+                location: `${state.currentLocation.lat.toFixed(5)}, ${state.currentLocation.lng.toFixed(5)}`,
+                imageBase64: state.imageBase64,
+            });
+            if (result.success) {
+                showMessage('สำเร็จ', result.message, true);
+                resetMainForm();
+            } else {
+                showMessage('เกิดข้อผิดพลาด', result.message, false);
+            }
+        } catch (error) {
+            const errorMessage = (error && error.message) ? error.message : 'เกิดข้อผิดพลาดที่ไม่รู้จัก';
+            showMessage('เกิดข้อผิดพลาด', `ไม่สามารถเชื่อมต่อกับเซิร์ฟเวอร์ได้: ${errorMessage}`, false);
+        } finally {
+            hideLoading();
+        }
+    });
+
+    const resetMainForm = () => {
+        mainPage.statusButtons.forEach(btn => btn.classList.remove('active'));
+        state.selectedStatus = null;
+        state.imageBase64 = null;
+        mainPage.photoPreviewContainer.classList.add('hidden');
+        mainPage.openCameraButton.classList.remove('hidden');
+        getUserLocation();
+        validateForm();
+    };
+
+    // --- HISTORY PAGE LOGIC ---
+    const fetchHistory = async () => {
+        showLoading('กำลังโหลดประวัติ...');
+        try {
+            const result = await runGas('getHistory', {
+                name: historyPage.nameFilter.value,
+                date: historyPage.dateFilter.value,
+            });
+            if (result && result.success) {
+                renderHistory(result.data);
+            } else {
+                const errorMessage = result ? result.message : "ไม่ได้รับข้อมูลตอบกลับจากเซิร์ฟเวอร์";
+                showMessage('ข้อผิดพลาด', `ไม่สามารถโหลดประวัติได้: ${errorMessage}`, false);
+                historyPage.list.innerHTML = '';
+                historyPage.placeholder.classList.remove('hidden');
+            }
+        } catch (error) {
+            const errorMessage = (error && error.message) ? error.message : 'เกิดข้อผิดพลาดในการเชื่อมต่อ';
+            showMessage('ข้อผิดพลาด', `การเชื่อมต่อล้มเหลว: ${errorMessage}`, false);
+        } finally {
+            hideLoading();
+        }
+    };
+    
+    const renderHistory = (records) => {
+        historyPage.list.innerHTML = '';
+        historyPage.placeholder.classList.toggle('hidden', records && records.length > 0);
+        if (records && records.length > 0) {
+            records.forEach(r => {
+                const statusCls = r.status === 'เข้างาน' ? 'text-green-800 bg-green-100' : 'text-red-800 bg-red-100';
+                const photoSrc = (r.photoUrl && r.photoUrl.trim()) ? r.photoUrl : 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="%23d1d5db"%3E%3Cpath d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/%3E%3C/svg%3E';
+                const item = document.createElement('div');
+                item.className = 'bg-white p-3 rounded-lg shadow-sm flex items-center gap-4';
+                item.innerHTML = `
+                    <img src="${photoSrc}" class="history-thumbnail w-16 h-16 object-cover rounded-md flex-shrink-0 bg-gray-200 cursor-pointer" onerror="this.onerror=null;this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2264%22 height=%2264%22%3E%3Crect fill=%22%23e5e7eb%22 width=%2264%22 height=%2264%22/%3E%3C/svg%3E'">
+                    <div class="flex-grow"><p class="font-semibold text-gray-800">${(r.name || '').replace(/</g,'&lt;')}</p><p class="text-sm text-gray-500">${(r.timestamp || '').replace(/</g,'&lt;')}</p><p class="text-xs text-gray-400 mt-1">${(r.location || '').replace(/</g,'&lt;')}</p></div>
+                    <div class="text-right"><span class="px-2 py-1 text-xs font-medium rounded-full ${statusCls}">${(r.status || '').replace(/</g,'&lt;')}</span><p class="font-bold text-lg text-gray-700 mt-1">${(r.time || '').replace(/</g,'&lt;')}</p></div>`;
+                historyPage.list.appendChild(item);
+            });
+        }
+    };
+    
+    [historyPage.nameFilter, historyPage.dateFilter].forEach(el => el.addEventListener('change', fetchHistory));
+    
+    // --- IMAGE VIEWER LOGIC ---
+    historyPage.list.addEventListener('click', (e) => {
+        if (e.target.classList.contains('history-thumbnail')) {
+            imageViewerModal.image.src = e.target.src;
+            imageViewerModal.modal.classList.remove('hidden');
+        }
+    });
+
+    imageViewerModal.closeButton.addEventListener('click', () => {
+        imageViewerModal.modal.classList.add('hidden');
+    });
+
+    imageViewerModal.modal.addEventListener('click', (e) => {
+        if (e.target === imageViewerModal.modal) {
+            imageViewerModal.modal.classList.add('hidden');
+        }
+    });
+
+
+    // --- NAVIGATION ---
+    navButtons.forEach(btn => {
+        btn.addEventListener('click', async () => {
+            const pageId = btn.dataset.page;
+            showPage(pageId);
+            if (pageId === 'history-page') {
+                if (state.isAdmin) {
+                    historyPage.nameFilter.disabled = false;
+                    // ถ้ายังไม่เคยโหลดรายชื่อพนักงาน ให้โหลดก่อน
+                    if (state.employees.length === 0) {
+                        showLoading('กำลังโหลดรายชื่อ...');
+                        try {
+                            const result = await runGas('getEmployeeList');
+                            if (result.success) {
+                                state.employees = result.employees;
+                                populateEmployeeSelect(historyPage.nameFilter, 'พนักงานทั้งหมด');
+                            }
+                        } catch (e) {
+                           showMessage('ผิดพลาด', 'ไม่สามารถโหลดรายชื่อพนักงานได้', false);
+                        } finally {
+                           hideLoading();
+                        }
+                    }
+                } else { // ผู้ใช้ทั่วไป
+                    historyPage.nameFilter.innerHTML = `<option value="${state.currentUser}">${state.currentUser}</option>`;
+                    historyPage.nameFilter.value = state.currentUser;
+                    historyPage.nameFilter.disabled = true;
+                }
+                fetchHistory();
+            }
+        });
+    });
+
+    // --- ADMIN LOGIC ---
+    adminAccessBtn.addEventListener('click', () => {
+        showPage(state.isAdmin ? 'admin-page' : 'admin-login-page');
+        if(state.isAdmin) loadAdminData();
+    });
+
+    adminLoginPage.loginButton.addEventListener('click', async () => {
+        const password = adminLoginPage.passwordInput.value;
+        if (!password) { 
+            showMessage('ข้อมูลไม่ครบ', 'กรุณากรอกรหัสผ่าน', false); 
+            return; 
+        }
+
+        showLoading('กำลังตรวจสอบรหัสผ่าน...');
+        try {
+            const result = await runGas('verifyAdminPassword', { password: password });
+            if (result.success) {
+                state.isAdmin = true;
+                adminLoginPage.passwordInput.value = '';
+                showPage('admin-page');
+                loadAdminData();
+            } else {
+                showMessage('รหัสไม่ถูกต้อง', result.message, false);
+            }
+        } catch (error) {
+             showMessage('เกิดข้อผิดพลาด', 'ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้', false);
+        } finally {
+            hideLoading();
+        }
+    });
+    
+    const loadAdminData = async () => {
+        // ถ้ายังไม่มี locations (เช่น เข้า Admin โดยไม่ผ่านหน้าหลัก) ให้โหลดก่อน
+        if (state.locations.length === 0) {
+            adminPage.locationList.innerHTML = '<p class="text-gray-500">กำลังโหลดการตั้งค่าพิกัด...</p>';
+            try {
+                const data = await runGas('getAppSettings');
+                if (data && data.success && data.locations) state.locations = data.locations;
+            } catch (_) {}
+        }
+        renderLocationSettings();
+        const today = new Date().toISOString().split('T')[0];
+        adminPage.summaryDatePicker.value = today;
+        fetchAdminSummary(today);
+    };
+    
+    const renderLocationSettings = () => {
+        adminPage.locationList.innerHTML = '';
+        if (!state.locations || state.locations.length === 0) return;
+        
+        state.locations.forEach((loc, index) => {
+            const item = document.createElement('div');
+            item.className = 'bg-gray-100 p-3 rounded-md';
+            item.innerHTML = `
+                <div class="flex items-center justify-between">
+                    <span class="font-semibold text-gray-800">${loc.name}</span>
+                    <button data-index="${index}" class="remove-location-btn p-1 text-red-500 hover:text-red-700 text-2xl leading-none">&times;</button>
+                </div>
+                <p class="text-xs text-gray-500">Lat: ${loc.lat.toFixed(4)}, Lng: ${loc.lng.toFixed(4)}</p>
+                <div class="mt-2 flex items-center gap-2">
+                    <label for="radius-${index}" class="text-sm">รัศมี:</label>
+                    <input type="number" id="radius-${index}" value="${loc.radius}" data-index="${index}" class="location-radius-input w-full p-1 border-gray-300 rounded-md shadow-sm text-center">
+                    <span class="text-sm">ม.</span>
+                </div>
+            `;
+            adminPage.locationList.appendChild(item);
+        });
+    };
+    
+    adminPage.locationList.addEventListener('input', (e) => {
+        if (e.target.classList.contains('location-radius-input')) {
+            const index = parseInt(e.target.dataset.index, 10);
+            state.locations[index].radius = parseInt(e.target.value, 10) || 0;
+        }
+    });
+
+    adminPage.locationList.addEventListener('click', (e) => {
+        if (e.target.closest('.remove-location-btn')) {
+            const index = parseInt(e.target.closest('.remove-location-btn').dataset.index, 10);
+            state.locations.splice(index, 1);
+            renderLocationSettings();
+        }
+    });
+
+    adminPage.addManualLocationBtn.addEventListener('click', () => {
+        const name = adminPage.newLocationNameInput.value.trim();
+        const lat = parseFloat(adminPage.newLocationLatInput.value);
+        const lng = parseFloat(adminPage.newLocationLngInput.value);
+        const radius = parseInt(adminPage.newLocationRadiusInput.value, 10) || 100;
+
+        if (!name || isNaN(lat) || isNaN(lng)) {
+            showMessage('ข้อมูลไม่ครบ', 'กรุณากรอกชื่อสาขา, ละติจูด, และลองจิจูดให้ถูกต้อง', false);
+            return;
+        }
+        state.locations.push({ name, lat, lng, radius });
+        renderLocationSettings();
+        
+        adminPage.newLocationNameInput.value = '';
+        adminPage.newLocationLatInput.value = '';
+        adminPage.newLocationLngInput.value = '';
+    });
+
+    adminPage.addLocationBtn.addEventListener('click', () => {
+        const name = adminPage.newLocationNameInput.value.trim();
+        const radius = parseInt(adminPage.newLocationRadiusInput.value, 10) || 100;
+        if (!name) { showMessage('ข้อมูลไม่ครบ', 'กรุณาใส่ชื่อสาขาก่อนดึงพิกัด', false); return; }
+        
+        showLoading('กำลังดึงพิกัดปัจจุบัน...');
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                hideLoading();
+                state.locations.push({ name, lat: pos.coords.latitude, lng: pos.coords.longitude, radius });
+                renderLocationSettings();
+                adminPage.newLocationNameInput.value = '';
+            },
+            () => { hideLoading(); showMessage('ผิดพลาด', 'ไม่สามารถดึงพิกัดได้', false); }
+        );
+    });
+    
+    adminPage.saveLocationsBtn.addEventListener('click', async () => {
+        showLoading('กำลังบันทึกพิกัด...');
+        try {
+            const result = await runGas('saveLocationSettings', state.locations);
+            showMessage(result.success ? 'สำเร็จ' : 'ผิดพลาด', result.message, result.success);
+        } catch(e) { showMessage('ผิดพลาด', 'การเชื่อมต่อล้มเหลว', false); } 
+        finally { hideLoading(); }
+    });
+
+    adminPage.summaryDatePicker.addEventListener('change', (e) => fetchAdminSummary(e.target.value));
+    
+    const fetchAdminSummary = async (dateString) => {
+        adminPage.summaryContent.innerHTML = '<p>กำลังโหลด...</p>';
+        try {
+            const result = await runGas('getAdminSummary', { dateString: dateString });
+            if(result.success) {
+                // ส่วนของพนักงานที่ลงเวลา
+                const checkedInHtml = `
+                    <p class="mb-2"><span class="font-semibold">จำนวนเข้างาน:</span> ${result.count} คน</p>
+                    <div><span class="font-semibold">รายชื่อและเวลา:</span>
+                    ${result.namesWithTimes.length > 0 ? `<ul class="list-disc list-inside ml-4 space-y-1">${result.namesWithTimes.map(name => `<li>${name}</li>`).join('')}</ul>` : ' ไม่มี'}
+                    </div>`;
+
+                // ส่วนของพนักงานที่ยังไม่ได้ลงเวลา
+                const absentHtml = `
+                    <div class="mt-4 pt-4 border-t">
+                        <p class="font-semibold text-red-600">รายชื่อที่ไม่ได้ลงเวลา: ${result.absentNames.length} คน</p>
+                         ${result.absentNames.length > 0 ? `<ul class="list-disc list-inside ml-4 space-y-1 text-gray-700">${result.absentNames.map(name => `<li>${name}</li>`).join('')}</ul>` : '<p class="text-sm text-gray-500 mt-1">ไม่มี</p>'}
+                    </div>`;
+                
+                adminPage.summaryContent.innerHTML = checkedInHtml + absentHtml;
+            } else {
+                 adminPage.summaryContent.innerHTML = `<p class="text-red-500">${result.message}</p>`;
+            }
+        } catch(e) {
+            adminPage.summaryContent.innerHTML = `<p class="text-red-500">การเชื่อมต่อล้มเหลว</p>`;
+        }
+    };
+    
+    adminPage.sendLineReportBtn.addEventListener('click', async () => {
+        const date = new Date(adminPage.summaryDatePicker.value + 'T00:00:00').toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' });
+        const summaryText = adminPage.summaryContent.innerText;
+        const message = `📋 สรุปการเข้างาน KP SHOP\nประจำวันที่: ${date}\n---------------------\n${summaryText}`;
+        
+        showLoading('กำลังส่งรายงาน...');
+        try {
+            const result = await runGas('sendLinePushMessage', { message: message });
+            if (result.success) {
+                showMessage('สำเร็จ', result.message, true);
+            } else {
+                showMessage('ผิดพลาด', `การส่งรายงานล้มเหลว: ${result.message}`, false);
+            }
+        } catch(e) { 
+            showMessage('ผิดพลาด', 'การเชื่อมต่อล้มเหลว', false); 
+        }
+        finally { hideLoading(); }
+    });
+
+    // --- UTILITY: fetch API wrapper สำหรับสื่อสารกับ Backend ---
+    const runGas = async (action, payload = {}) => {
+        // หากเปิดจาก Google Viewer ที่ยังไม่ได้ใส่ Web App URL
+        if(GAS_WEB_APP_URL === "YOUR_WEB_APP_URL_HERE") {
+             // เราจำลองพฤติกรรมเดิม (เรียกผ่าน google.script.run ถ้าอยู่ในหน้าแสดงผลของ Google)
+             if(typeof google !== 'undefined' && google.script && google.script.run) {
+                 return new Promise((resolve, reject) => {
+                     google.script.run
+                         .withSuccessHandler(resolve)
+                         .withFailureHandler(reject)
+                         [action](...Object.values(payload));
+                 });
+             } else {
+                 throw new Error("ยังไม่ได้กำหนดค่า GAS_WEB_APP_URL \n(รบกวน Deploy เป็น Web App แล้วนำ URL มาวางก่อน)");
+             }
+        }
+
+        // --- พฤติกรรมใหม่: เรียกหา Web App ด้วย HTTP POST สำหรับ GitHub Pages ---
+        try {
+            const response = await fetch(GAS_WEB_APP_URL, {
+                method: "POST",
+                //โหมด no-cors จะอ่าน response ไม่ได้ ต้องพึ่งพาการตั้งค่าจาก Google ฝั่งนู้น 
+                //GAS โดยทั่วไปตอนเรียกใช้งานผ่าน do-post จำเป็นต้องส่งเป็น text/plain แทน
+                headers: {
+                    "Content-Type": "text/plain;charset=utf-8", 
+                },
+                body: JSON.stringify({
+                    apiKey: API_KEY, // แนบรหัสความปลอดภัยเสมอ
+                    action: action, // คำสั่งว่าจะให้ฝั่ง GAS ทำฟังก์ชันไหน
+                    payload: payload // แนบ params 
+                }),
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            return data;
+            
+        } catch (error) {
+            console.error("API Call Failed:", error);
+            throw error;
+        }
+    };
+
+    // --- START THE APP ---
+    initialize();
+});
+</script>
+</body>
+</html>
