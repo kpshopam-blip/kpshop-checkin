@@ -1268,8 +1268,8 @@ document.addEventListener('DOMContentLoaded', () => {
     /** ดึงประวัติเช็คอินจาก Supabase */
     const sbGetHistory = async (filters) => {
         let query = sb().from('check_in_out')
-            .select('date, name, status, time, location, photo_url')
-            .order('created_at', { ascending: false })
+            .select('date, name, status, time, location, photo_url, timestamp')
+            .order('timestamp', { ascending: false })
             .limit(100);
 
         if (filters.name) query = query.eq('name', filters.name);
