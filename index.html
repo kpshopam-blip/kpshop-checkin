@@ -10,12 +10,21 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script>
       // ==========================================
-      // ตั้งค่ารหัสผ่านและการเชื่อมต่อกับ Backend (Google Apps Script)
+      // ตั้งค่าการเชื่อมต่อ Backend
       // ==========================================
-      const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbwA_m8C1m0I8_n25g7WJDGCvQC2d9OBmrZkB0avLDfVl-nCxW3BNxcBoEqJjlz0Tk4/exec"; // <-- นำ URL จากการ Deploy Web App มาใส่ตรงนี้
-      const API_KEY = "kpshop_168"; // <-- ต้องตรงกับใน Code.gs
+      const GAS_WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx9Up5HtEC5BhMZb7HuP0Z6A6m2tB63GZRjrpxlge9CNL1aOoluepROpGmM0KtRpTUPtA/exec";
+      const API_KEY = "kpshop_168";
+
+      // === Supabase Config ===
+      const SUPABASE_URL = "https://uavwhxctnklepspiamtk.supabase.co";
+      const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVhdndoeGN0bmtsZXBzcGlhbXRrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ2OTEwNzUsImV4cCI6MjA5MDI2NzA3NX0.J5RPmKWYJaZ0WXGUiPGdvN4V3rNoLjB3IcNTEhSQOFM";
+      
+      // สร้าง Supabase client ทันที (เพราะ SDK โหลดแบบ blocking ทันแน่นอน) ป้องกันบั๊กใน WebView/Iframe
+      const _supabase = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
     </script>
     <style>
         body {
@@ -556,19 +565,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
         showLoading('กำลังตรวจสอบรหัส...');
         try {
-            const result = await runGas('loginWithPin', { pin: enteredPin });
+            // ⚡ Login จาก Supabase (เร็ว) ถ้าไม่ได้ให้ fallback ไป Apps Script
+            let result;
+            if (sb()) {
+                result = await sbLoginWithPin(enteredPin);
+            } else {
+                result = await runGas('loginWithPin', { pin: enteredPin });
+            }
+
             if (result.success) {
                 state.currentUser = result.name;
-                
-                // --- เพิ่มระบบตรวจสอบว่าติดทำโทษหรือไม่ ---
+                // Troll ยังเช็คจาก Apps Script เหมือนเดิม
                 const trollCheckResult = await runGas('getTrollList');
                 if (trollCheckResult && trollCheckResult.success && trollCheckResult.trollList.includes(state.currentUser)) {
                     hideLoading();
-                    showTrollModal(); // เรียกหน้าทำโทษ
+                    showTrollModal();
                 } else {
-                    startApp(); // ปกติ
+                    startApp();
                 }
-                
             } else {
                 showMessage('เข้าสู่ระบบล้มเหลว', result.message, false);
                 loginPage.pinInput.value = '';
@@ -611,16 +625,15 @@ document.addEventListener('DOMContentLoaded', () => {
         showPage('main-page');
         validateForm();
 
-        // โหลด locations หลังล็อกอิน (ในพื้นหลัง) เพื่อใช้ตรวจสอบรัศมี — ไม่บล็อกหน้า
+        // ⚡ โหลด locations จาก Supabase (เร็ว) ใน background
         if (state.locations.length === 0) {
-            runGas('getAppSettings')
-                .then((data) => {
-                    if (data && data.success && data.locations) {
-                        state.locations = data.locations;
-                        checkLocationRadius(); // อัปเดตคำเตือนถ้าพิกัดโหลดหลังตำแหน่ง
-                    }
-                })
-                .catch(() => { /* ถ้าโหลดไม่สำเร็จ จะ retry เมื่อกดบันทึก หรือเช็ค radius ครั้งถัดไป */ });
+            const loadLoc = sb() ? sbGetLocations() : runGas('getAppSettings');
+            loadLoc.then((data) => {
+                if (data && data.success && data.locations) {
+                    state.locations = data.locations;
+                    checkLocationRadius();
+                }
+            }).catch(() => {});
         }
     };
     
@@ -696,6 +709,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const checkLocationRadius = () => {
         if (!state.currentLocation || state.locations.length === 0) {
             mainPage.locationDistanceWarning.classList.add('hidden');
+            state.isWithinRadius = true; // ไม่มีสาขาให้เช็ค หรือกำลังโหลด ให้ผ่านไปก่อน
+            validateForm();
             return;
         }
         const R = 6371e3; // metres
@@ -716,7 +731,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 break;
             }
         }
-        mainPage.locationDistanceWarning.classList.toggle('hidden', isWithinRadius);
+        state.isWithinRadius = isWithinRadius; // เก็บลง state
+        mainPage.locationDistanceWarning.classList.toggle('hidden', state.isWithinRadius);
+        validateForm(); // รีเช็คปุ่มบันทึกใหม่
     };
 
 
@@ -730,7 +747,8 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const validateForm = () => {
-        mainPage.submitButton.disabled = !(state.selectedStatus && state.currentLocation && state.imageBase64);
+        // จะกดบันทึกได้ ต้อง: เลือกสถานะ + มีพิกัด + มีรูปภาพ + อยู่ในรัศมี(หรือตั้งสาขาไว้)
+        mainPage.submitButton.disabled = !(state.selectedStatus && state.currentLocation && state.imageBase64 && state.isWithinRadius);
     };
     
     // --- CAMERA LOGIC ---
@@ -831,13 +849,21 @@ document.addEventListener('DOMContentLoaded', () => {
     mainPage.submitButton.addEventListener('click', async () => {
         if (mainPage.submitButton.disabled) return;
         showLoading('กำลังบันทึกข้อมูล...');
+        const checkInPayload = {
+            name: state.currentUser,
+            status: state.selectedStatus,
+            location: `${state.currentLocation.lat.toFixed(5)}, ${state.currentLocation.lng.toFixed(5)}`,
+            imageBase64: state.imageBase64,
+        };
         try {
-            const result = await runGas('recordCheckInOut', {
-                name: state.currentUser,
-                status: state.selectedStatus,
-                location: `${state.currentLocation.lat.toFixed(5)}, ${state.currentLocation.lng.toFixed(5)}`,
-                imageBase64: state.imageBase64,
-            });
+            let result;
+            if (sb()) {
+                // ⚡ บันทึก Supabase ก่อน (เร็ว) แล้ว sync Sheets ใน background
+                result = await sbRecordCheckIn(checkInPayload);
+            } else {
+                // Fallback: ใช้ Apps Script เหมือนเดิม
+                result = await runGas('recordCheckInOut', checkInPayload);
+            }
             if (result.success) {
                 showMessage('สำเร็จ', result.message, true);
                 resetMainForm();
@@ -866,10 +892,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchHistory = async () => {
         showLoading('กำลังโหลดประวัติ...');
         try {
-            const result = await runGas('getHistory', {
-                name: historyPage.nameFilter.value,
-                date: historyPage.dateFilter.value,
-            });
+            // ⚡ ดึงประวัติจาก Supabase (เร็ว)
+            let result;
+            if (sb()) {
+                result = await sbGetHistory({
+                    name: historyPage.nameFilter.value,
+                    date: historyPage.dateFilter.value,
+                });
+            } else {
+                result = await runGas('getHistory', {
+                    name: historyPage.nameFilter.value,
+                    date: historyPage.dateFilter.value,
+                });
+            }
             if (result && result.success) {
                 renderHistory(result.data);
             } else {
@@ -937,7 +972,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (state.employees.length === 0) {
                         showLoading('กำลังโหลดรายชื่อ...');
                         try {
-                            const result = await runGas('getEmployeeList');
+                            // ⚡ โหลดรายชื่อจาก Supabase
+                            const result = sb() ? await sbGetEmployees() : await runGas('getEmployeeList');
                             if (result.success) {
                                 state.employees = result.employees;
                                 populateEmployeeSelect(historyPage.nameFilter, 'พนักงานทั้งหมด');
@@ -990,10 +1026,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     const loadAdminData = async () => {
-        // ดึงรายชื่อพนักงานทั้งหมดถ้ายังไม่มี เพื่อเอามาใส่ใน Dropdown ทำโทษ
+        // ⚡ ดึงรายชื่อพนักงานจาก Supabase
         if (state.employees.length === 0) {
             try {
-                const empData = await runGas('getEmployeeList');
+                const empData = sb() ? await sbGetEmployees() : await runGas('getEmployeeList');
                 if (empData && empData.success) {
                     state.employees = empData.employees;
                     populateEmployeeSelect(adminPage.trollNameInput, '-- เลือกชื่อพนักงาน --');
@@ -1162,22 +1198,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const fetchAdminSummary = async (dateString) => {
         adminPage.summaryContent.innerHTML = '<p>กำลังโหลด...</p>';
         try {
-            const result = await runGas('getAdminSummary', { dateString: dateString });
+            // ⚡ ดึง summary จาก Supabase (เร็ว)
+            const result = sb() ? await sbGetAdminSummary(dateString) : await runGas('getAdminSummary', { dateString: dateString });
             if(result.success) {
-                // ส่วนของพนักงานที่ลงเวลา
                 const checkedInHtml = `
                     <p class="mb-2"><span class="font-semibold">จำนวนเข้างาน:</span> ${result.count} คน</p>
                     <div><span class="font-semibold">รายชื่อและเวลา:</span>
                     ${result.namesWithTimes.length > 0 ? `<ul class="list-disc list-inside ml-4 space-y-1">${result.namesWithTimes.map(name => `<li>${name}</li>`).join('')}</ul>` : ' ไม่มี'}
                     </div>`;
-
-                // ส่วนของพนักงานที่ยังไม่ได้ลงเวลา
                 const absentHtml = `
                     <div class="mt-4 pt-4 border-t">
                         <p class="font-semibold text-red-600">รายชื่อที่ไม่ได้ลงเวลา: ${result.absentNames.length} คน</p>
                          ${result.absentNames.length > 0 ? `<ul class="list-disc list-inside ml-4 space-y-1 text-gray-700">${result.absentNames.map(name => `<li>${name}</li>`).join('')}</ul>` : '<p class="text-sm text-gray-500 mt-1">ไม่มี</p>'}
                     </div>`;
-                
                 adminPage.summaryContent.innerHTML = checkedInHtml + absentHtml;
             } else {
                  adminPage.summaryContent.innerHTML = `<p class="text-red-500">${result.message}</p>`;
@@ -1206,11 +1239,145 @@ document.addEventListener('DOMContentLoaded', () => {
         finally { hideLoading(); }
     });
 
-    // --- UTILITY: fetch API wrapper สำหรับสื่อสารกับ Backend ---
+    // ============================================================
+    // UTILITY: Supabase API (อ่าน/เขียนข้อมูลเร็ว)
+    // ============================================================
+    const sb = () => _supabase; // shorthand
+
+    /** ดึงรายชื่อพนักงานจาก Supabase */
+    const sbGetEmployees = async () => {
+        const { data, error } = await sb().from('employees').select('name, pin');
+        if (error) throw error;
+        return { success: true, employees: data };
+    };
+
+    /** ดึงพิกัดสาขาจาก Supabase */
+    const sbGetLocations = async () => {
+        const { data, error } = await sb().from('locations').select('name, lat, lng, radius');
+        if (error) throw error;
+        return { success: true, locations: data };
+    };
+
+    /** Login ตรวจ PIN จาก Supabase */
+    const sbLoginWithPin = async (pin) => {
+        const { data, error } = await sb().from('employees').select('name').eq('pin', pin.toString()).single();
+        if (error || !data) return { success: false, message: 'รหัสพนักงานไม่ถูกต้อง' };
+        return { success: true, name: data.name };
+    };
+
+    /** ดึงประวัติเช็คอินจาก Supabase */
+    const sbGetHistory = async (filters) => {
+        let query = sb().from('check_in_out')
+            .select('date, name, status, time, location, photo_url')
+            .order('created_at', { ascending: false })
+            .limit(100);
+
+        if (filters.name) query = query.eq('name', filters.name);
+        if (filters.date) {
+            // แปลง YYYY-MM-DD เป็น dd/MM/yyyy สำหรับ filter
+            const [y, m, d] = filters.date.split('-');
+            query = query.eq('date', `${d}/${m}/${y}`);
+        }
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        // ใช้ date และ time ที่เป็น text ตรงๆ ไม่ต้อง parse timestamp เลย (ป้องกัน timezone ผิด)
+        const result = data.map(r => ({
+            timestamp: `${r.date} ${r.time}`,  // เช่น "28/03/2569 08:06:32"
+            name: r.name,
+            status: r.status,
+            time: r.time,
+            location: r.location,
+            photoUrl: r.photo_url
+        }));
+        return { success: true, data: result };
+    };
+
+    /**
+     * บันทึกเช็คอิน:
+     * 1. ส่งรูปไป Apps Script → Drive (ช้า แต่ทำ background)
+     * 2. Insert ลง Supabase ทันที (เร็ว ⚡) → แสดงสำเร็จ
+     * 3. Apps Script sync ข้อมูลลง Google Sheets เงียบๆ
+     */
+    const sbRecordCheckIn = async (payload) => {
+        // คำนวณวันที่ตาม timezone ไทย (GMT+7) โดยตรง
+        const now = new Date();
+        const thDate = new Intl.DateTimeFormat('th-TH-u-ca-gregory', {
+            timeZone: 'Asia/Bangkok',
+            day: '2-digit', month: '2-digit', year: 'numeric'
+        }).formatToParts(now);
+        const day   = thDate.find(p => p.type === 'day').value;
+        const month = thDate.find(p => p.type === 'month').value;
+        const year  = thDate.find(p => p.type === 'year').value;
+        const today = `${day}/${month}/${year}`; // dd/MM/yyyy ปี ค.ศ.
+        const { data: existing } = await sb().from('check_in_out')
+            .select('id').eq('name', payload.name).eq('date', today).eq('status', payload.status);
+        if (existing && existing.length > 0) {
+            return { success: false, message: `คุณได้ทำการ "${payload.status}" ของวันนี้ไปแล้ว` };
+        }
+
+        // Step 1: Insert ลง Supabase ก่อน (เร็ว ⚡) พร้อม photo_url ชั่วคราว
+        const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Bangkok' });
+        const { error: insertError } = await sb().from('check_in_out').insert({
+            timestamp: now.toISOString(),
+            date: today,
+            name: payload.name,
+            status: payload.status,
+            time: timeStr,
+            location: payload.location,
+            photo_url: '', // จะอัปเดตที่หลัง
+            synced_to_sheets: false
+        });
+        if (insertError) throw insertError;
+
+        // Step 2: ส่งรูป + sync Sheets ใน background (ไม่ต้องรอ)
+        runGas('recordCheckInOut', payload).then(gasResult => {
+            if (gasResult && gasResult.success) {
+                console.log('✅ Synced to Sheets & Drive successfully');
+            }
+        }).catch(err => console.warn('⚠️ Background sync failed:', err));
+
+        return { success: true, message: `บันทึกเวลา ${payload.status} สำเร็จ!` };
+    };
+
+    /** สรุป Admin จาก Supabase */
+    const sbGetAdminSummary = async (dateString) => {
+        const [y, m, d] = dateString.split('-');
+        const dateFormatted = `${d}/${m}/${y}`;
+
+        // ดึงพนักงานทั้งหมด
+        const { data: allEmp } = await sb().from('employees').select('name');
+        const allNames = (allEmp || []).map(e => e.name);
+
+        // ดึงเช็คอินวันนี้
+        const { data: checkIns } = await sb().from('check_in_out')
+            .select('name, status, time').eq('date', dateFormatted);
+
+        const summary = {};
+        (checkIns || []).forEach(r => {
+            if (!summary[r.name]) summary[r.name] = { name: r.name, in: null, out: null };
+            if (r.status === 'เข้างาน' && !summary[r.name].in) summary[r.name].in = r.time;
+            if (r.status === 'ออกงาน') summary[r.name].out = r.time;
+        });
+
+        const namesWithTimes = Object.values(summary).map(s => {
+            const inStr = s.in ? `เข้า ${s.in}` : 'ยังไม่เข้างาน';
+            const outStr = s.out ? ` - ออก ${s.out}` : '';
+            return `${s.name} ${inStr}${outStr}`;
+        });
+
+        const checkedNames = Object.keys(summary);
+        const absentNames = allNames.filter(n => !checkedNames.includes(n));
+
+        return { success: true, count: checkedNames.length, namesWithTimes, absentNames };
+    };
+
+    // ============================================================
+    // UTILITY: fetch API wrapper สำหรับ Apps Script (fallback)
+    // ============================================================
     const runGas = async (action, payload = {}) => {
-        // หากเปิดจาก Google Viewer ที่ยังไม่ได้ใส่ Web App URL
         if(GAS_WEB_APP_URL === "YOUR_WEB_APP_URL_HERE") {
-             // เราจำลองพฤติกรรมเดิม (เรียกผ่าน google.script.run ถ้าอยู่ในหน้าแสดงผลของ Google)
              if(typeof google !== 'undefined' && google.script && google.script.run) {
                  return new Promise((resolve, reject) => {
                      google.script.run
@@ -1219,35 +1386,19 @@ document.addEventListener('DOMContentLoaded', () => {
                          [action](...Object.values(payload));
                  });
              } else {
-                 throw new Error("ยังไม่ได้กำหนดค่า GAS_WEB_APP_URL \n(รบกวน Deploy เป็น Web App แล้วนำ URL มาวางก่อน)");
+                 throw new Error("ยังไม่ได้กำหนดค่า GAS_WEB_APP_URL");
              }
         }
-
-        // --- พฤติกรรมใหม่: เรียกหา Web App ด้วย HTTP POST สำหรับ GitHub Pages ---
         try {
             const response = await fetch(GAS_WEB_APP_URL, {
                 method: "POST",
-                //โหมด no-cors จะอ่าน response ไม่ได้ ต้องพึ่งพาการตั้งค่าจาก Google ฝั่งนู้น 
-                //GAS โดยทั่วไปตอนเรียกใช้งานผ่าน do-post จำเป็นต้องส่งเป็น text/plain แทน
-                headers: {
-                    "Content-Type": "text/plain;charset=utf-8", 
-                },
-                body: JSON.stringify({
-                    apiKey: API_KEY, // แนบรหัสความปลอดภัยเสมอ
-                    action: action, // คำสั่งว่าจะให้ฝั่ง GAS ทำฟังก์ชันไหน
-                    payload: payload // แนบ params 
-                }),
+                headers: { "Content-Type": "text/plain;charset=utf-8" },
+                body: JSON.stringify({ apiKey: API_KEY, action: action, payload: payload }),
             });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            return data;
-            
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            return await response.json();
         } catch (error) {
-            console.error("API Call Failed:", error);
+            console.error("GAS API Failed:", error);
             throw error;
         }
     };
