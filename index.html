@@ -1317,7 +1317,7 @@ document.addEventListener('DOMContentLoaded', () => {
             return { success: false, message: `คุณได้ทำการ "${payload.status}" ของวันนี้ไปแล้ว` };
         }
 
-        // Step 1: Insert ลง Supabase ก่อน (เร็ว ⚡) พร้อม photo_url ชั่วคราว
+        // Step 1: Insert ลง Supabase ก่อน (เร็ว ⚡) ฝากรูปไว้ใน temp_image_base64
         const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZone: 'Asia/Bangkok' });
         const { error: insertError } = await sb().from('check_in_out').insert({
             timestamp: now.toISOString(),
@@ -1326,17 +1326,14 @@ document.addEventListener('DOMContentLoaded', () => {
             status: payload.status,
             time: timeStr,
             location: payload.location,
-            photo_url: '', // จะอัปเดตที่หลัง
+            photo_url: 'EMPTY', // จะถูกแทนที่ด้วยลิงก์ Drive ตอนหลัง
+            temp_image_base64: payload.imageBase64, // ฝากไฟล์ภาพที่เป็น Base64 ไว้ชั่วคราว
             synced_to_sheets: false
         });
         if (insertError) throw insertError;
 
-        // Step 2: ส่งรูป + sync Sheets ใน background (ไม่ต้องรอ)
-        runGas('recordCheckInOut', payload).then(gasResult => {
-            if (gasResult && gasResult.success) {
-                console.log('✅ Synced to Sheets & Drive successfully');
-            }
-        }).catch(err => console.warn('⚠️ Background sync failed:', err));
+        // Step 2: กระตุ้น Apps Script ให้เริ่มคิวกวาดล้างภาพขึ้น Drive เบื้องหลัง (ไม่ต้องสนผลลัพธ์ว่าเสร็จตอนไหน)
+        runGas('processSyncQueue').catch(err => console.warn('⚠️ Sync background queue failed, but data is safe in Supabase. Wait for manual/scheduled trigger.', err));
 
         return { success: true, message: `บันทึกเวลา ${payload.status} สำเร็จ!` };
     };
