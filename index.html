@@ -575,9 +575,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (result.success) {
                 state.currentUser = result.name;
-                // Troll ยังเช็คจาก Apps Script เหมือนเดิม
-                const trollCheckResult = await runGas('getTrollList');
-                if (trollCheckResult && trollCheckResult.success && trollCheckResult.trollList.includes(state.currentUser)) {
+                // Troll เช็คจาก Apps Script (ทำ try-catch แยก ไม่ให้กระทบการล็อกอินหลัก)
+                let isTroll = false;
+                try {
+                    // กำหนด TimeOut 3 วินาที เพื่อไม่ให้ล็อกอินช้า
+                    const trollCheckPromise = runGas('getTrollList');
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000));
+                    const trollCheckResult = await Promise.race([trollCheckPromise, timeoutPromise]);
+                    
+                    if (trollCheckResult && trollCheckResult.success && trollCheckResult.trollList.includes(state.currentUser)) {
+                        isTroll = true;
+                    }
+                } catch (trollError) {
+                    console.warn("ข้ามการเช็ค Troll เนื่องจากโหลดช้าหรือเชื่อมต่อ GAS ไม่ได้:", trollError);
+                }
+
+                if (isTroll) {
                     hideLoading();
                     showTrollModal();
                 } else {
