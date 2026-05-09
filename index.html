@@ -867,23 +867,44 @@ document.addEventListener('DOMContentLoaded', () => {
             maskCtx = maskCanvas.getContext('2d');
         }
 
+        // 1. นำภาพดั้งเดิมมาใส่ Filter ตามที่เลือกจากปุ่มด้านล่าง
+        const filters = {
+            'filter-none': 'none',
+            'filter-soft': 'contrast(1.1) saturate(1.1) brightness(1.05)',
+            'filter-beauty': 'contrast(0.9) brightness(1.1) saturate(1.05)',
+            'filter-warm': 'sepia(0.15) saturate(1.2) brightness(1.05)',
+            'filter-bright': 'brightness(1.2) contrast(1.05)',
+            'filter-vivid': 'saturate(1.4) contrast(1.1)'
+        };
         ctx.clearRect(0, 0, width, height);
+        ctx.filter = filters[activeFilterClass] || 'none';
         ctx.drawImage(results.image, 0, 0, width, height);
+        ctx.filter = 'none'; // reset
 
         if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+            // 2. สร้างหน้ากากแบบขอบฟุ้ง (Feather) ให้เนียนไปกับพื้นหลัง
             maskCtx.clearRect(0, 0, width, height);
+            const maskBlur = Math.max(4, Math.floor(width * 0.008));
+            maskCtx.filter = `blur(${maskBlur}px)`;
             drawFaceMask(maskCtx, results.multiFaceLandmarks[0], width, height);
+            maskCtx.filter = 'none';
 
+            // 3. นำภาพที่ใส่ Filter แล้วมาทำ Skin Smoothing แบบขั้นสุด
+            const blurRadius = Math.max(12, Math.floor(width * 0.02)); // รัศมีเบลออิงตามขนาดจอ
             offscreenCtx.clearRect(0, 0, width, height);
-            offscreenCtx.filter = 'blur(6px) brightness(1.05) contrast(0.95) saturate(1.1)';
-            offscreenCtx.drawImage(results.image, 0, 0, width, height);
+            offscreenCtx.filter = `blur(${blurRadius}px) brightness(1.15) saturate(1.25) contrast(0.85)`;
+            offscreenCtx.drawImage(c, 0, 0, width, height);
 
+            // 4. ตัดภาพให้เหลือเฉพาะโครงหน้า
             offscreenCtx.filter = 'none';
             offscreenCtx.globalCompositeOperation = 'destination-in';
             offscreenCtx.drawImage(maskCanvas, 0, 0, width, height);
             offscreenCtx.globalCompositeOperation = 'source-over';
 
+            // 5. นำผิวเนียนไปทับบนภาพปกติ (ตั้งความทึบแสง 90% เพื่อหลงเหลือ texture ผิวบ้าง)
+            ctx.globalAlpha = 0.9;
             ctx.drawImage(offscreenCanvas, 0, 0, width, height);
+            ctx.globalAlpha = 1.0;
         }
     };
 
@@ -908,13 +929,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (aiModeEnabled) {
                 cameraModal.video.classList.add('opacity-0', 'absolute');
                 cameraModal.aiPreviewCanvas.classList.remove('hidden');
-                cameraModal.filterOptions.classList.add('hidden');
+                // ไม่ซ่อน filterOptions เพื่อให้ใช้งานคู่กันได้
                 processAiFrame();
             }
         } else {
             cameraModal.video.classList.remove('opacity-0', 'absolute');
             cameraModal.aiPreviewCanvas.classList.add('hidden');
-            cameraModal.filterOptions.classList.remove('hidden');
             if (aiCameraLoopId) {
                 cancelAnimationFrame(aiCameraLoopId);
                 aiCameraLoopId = null;
