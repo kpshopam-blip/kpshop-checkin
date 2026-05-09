@@ -331,7 +331,17 @@
 
     <!-- Camera Modal -->
     <div id="camera-modal" class="hidden fixed inset-0 bg-black z-40 flex flex-col items-center justify-center">
+        <!-- AI Beauty Toggle -->
+        <div class="absolute top-4 left-4 z-50 flex items-center gap-2 bg-black/60 p-2 px-3 rounded-full text-white shadow-lg border border-white/20">
+            <span class="text-xs font-medium">✨ โหมดหน้าเนียน AI</span>
+            <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" id="ai-beauty-toggle" class="sr-only peer">
+                <div class="w-9 h-5 bg-gray-500 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-pink-500"></div>
+            </label>
+        </div>
+
         <video id="camera-video" class="w-full h-full object-cover" autoplay playsinline></video>
+        <canvas id="ai-preview-canvas" class="w-full h-full object-cover hidden transform scale-x-[-1]"></canvas>
         <canvas id="camera-canvas" class="hidden"></canvas>
         
         <div class="absolute bottom-24 left-0 right-0 p-4 flex justify-center items-center gap-2 flex-wrap" id="filter-options">
@@ -399,6 +409,15 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeFilterClass = 'filter-beauty'; // ค่าเริ่มต้น: เนียนสวย
     let clockInterval = null; // เก็บ ID ของ setInterval เพื่อ clear ตอน logout
 
+    // --- AI BEAUTY STATE ---
+    let aiModeEnabled = false;
+    let faceMesh = null;
+    let aiCameraLoopId = null;
+    let offscreenCtx = null;
+    let maskCtx = null;
+    let offscreenCanvas = document.createElement('canvas');
+    let maskCanvas = document.createElement('canvas');
+
     // --- ELEMENT SELECTORS ---
     const pages = document.querySelectorAll('.page');
     const navButtons = document.querySelectorAll('.nav-btn');
@@ -460,6 +479,8 @@ document.addEventListener('DOMContentLoaded', () => {
         modal: document.getElementById('camera-modal'),
         video: document.getElementById('camera-video'),
         canvas: document.getElementById('camera-canvas'),
+        aiPreviewCanvas: document.getElementById('ai-preview-canvas'),
+        aiToggle: document.getElementById('ai-beauty-toggle'),
         captureButton: document.getElementById('capture-btn'),
         closeButton: document.getElementById('close-camera-btn'),
         filterOptions: document.getElementById('filter-options'),
@@ -764,6 +785,143 @@ document.addEventListener('DOMContentLoaded', () => {
         mainPage.submitButton.disabled = !(state.selectedStatus && state.currentLocation && state.imageBase64 && state.isWithinRadius);
     };
     
+    // --- AI BEAUTY LOGIC ---
+    const loadMediaPipe = () => {
+        return new Promise((resolve, reject) => {
+            if (window.FaceMesh) return resolve();
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js';
+            script.crossOrigin = 'anonymous';
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+        });
+    };
+
+    const drawFaceMask = (ctx, landmarks, width, height) => {
+        // Face Oval
+        const faceOvalIndices = [10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109];
+        // Left Eye (user right)
+        const leftEyeIndices = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246];
+        // Right Eye (user left)
+        const rightEyeIndices = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398];
+        // Lips Outer
+        const lipsIndices = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40];
+        // Eyebrows
+        const leftEyebrow = [46, 53, 52, 65, 55];
+        const rightEyebrow = [276, 283, 282, 295, 285];
+
+        const drawPolygon = (indices, close = true) => {
+            ctx.beginPath();
+            indices.forEach((idx, i) => {
+                const pt = landmarks[idx];
+                if (i === 0) ctx.moveTo(pt.x * width, pt.y * height);
+                else ctx.lineTo(pt.x * width, pt.y * height);
+            });
+            if (close) ctx.closePath();
+            ctx.fill();
+        };
+
+        ctx.fillStyle = 'white';
+        drawPolygon(faceOvalIndices);
+
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = 'black';
+        drawPolygon(leftEyeIndices);
+        drawPolygon(rightEyeIndices);
+        drawPolygon(lipsIndices);
+        
+        ctx.lineWidth = 10;
+        ctx.strokeStyle = 'black';
+        ctx.beginPath();
+        leftEyebrow.forEach((idx, i) => { const pt = landmarks[idx]; i===0 ? ctx.moveTo(pt.x*width, pt.y*height) : ctx.lineTo(pt.x*width, pt.y*height); });
+        ctx.stroke();
+        ctx.beginPath();
+        rightEyebrow.forEach((idx, i) => { const pt = landmarks[idx]; i===0 ? ctx.moveTo(pt.x*width, pt.y*height) : ctx.lineTo(pt.x*width, pt.y*height); });
+        ctx.stroke();
+        
+        ctx.globalCompositeOperation = 'source-over';
+    };
+
+    const processAiFrame = async () => {
+        if (!aiModeEnabled || !cameraModal.video.videoWidth) {
+            aiCameraLoopId = requestAnimationFrame(processAiFrame);
+            return;
+        }
+        await faceMesh.send({image: cameraModal.video});
+        aiCameraLoopId = requestAnimationFrame(processAiFrame);
+    };
+
+    const onFaceMeshResults = (results) => {
+        const v = cameraModal.video;
+        const c = cameraModal.aiPreviewCanvas;
+        const ctx = c.getContext('2d');
+        const width = v.videoWidth;
+        const height = v.videoHeight;
+        
+        if (c.width !== width) {
+            c.width = width; c.height = height;
+            offscreenCanvas.width = width; offscreenCanvas.height = height;
+            maskCanvas.width = width; maskCanvas.height = height;
+            offscreenCtx = offscreenCanvas.getContext('2d');
+            maskCtx = maskCanvas.getContext('2d');
+        }
+
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(results.image, 0, 0, width, height);
+
+        if (results.multiFaceLandmarks && results.multiFaceLandmarks.length > 0) {
+            maskCtx.clearRect(0, 0, width, height);
+            drawFaceMask(maskCtx, results.multiFaceLandmarks[0], width, height);
+
+            offscreenCtx.clearRect(0, 0, width, height);
+            offscreenCtx.filter = 'blur(6px) brightness(1.05) contrast(0.95) saturate(1.1)';
+            offscreenCtx.drawImage(results.image, 0, 0, width, height);
+
+            offscreenCtx.filter = 'none';
+            offscreenCtx.globalCompositeOperation = 'destination-in';
+            offscreenCtx.drawImage(maskCanvas, 0, 0, width, height);
+            offscreenCtx.globalCompositeOperation = 'source-over';
+
+            ctx.drawImage(offscreenCanvas, 0, 0, width, height);
+        }
+    };
+
+    cameraModal.aiToggle.addEventListener('change', async (e) => {
+        aiModeEnabled = e.target.checked;
+        if (aiModeEnabled) {
+            if (!faceMesh) {
+                showLoading('กำลังโหลด AI...');
+                try {
+                    await loadMediaPipe();
+                    faceMesh = new window.FaceMesh({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`});
+                    faceMesh.setOptions({maxNumFaces: 1, refineLandmarks: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5});
+                    faceMesh.onResults(onFaceMeshResults);
+                    await faceMesh.initialize();
+                } catch (err) {
+                    showMessage('ข้อผิดพลาด', 'ไม่สามารถโหลด AI ได้', false);
+                    e.target.checked = false;
+                    aiModeEnabled = false;
+                }
+                hideLoading();
+            }
+            if (aiModeEnabled) {
+                cameraModal.video.classList.add('opacity-0', 'absolute');
+                cameraModal.aiPreviewCanvas.classList.remove('hidden');
+                cameraModal.filterOptions.classList.add('hidden');
+                processAiFrame();
+            }
+        } else {
+            cameraModal.video.classList.remove('opacity-0', 'absolute');
+            cameraModal.aiPreviewCanvas.classList.add('hidden');
+            cameraModal.filterOptions.classList.remove('hidden');
+            if (aiCameraLoopId) {
+                cancelAnimationFrame(aiCameraLoopId);
+                aiCameraLoopId = null;
+            }
+        }
+    });
+
     // --- CAMERA LOGIC ---
     let stream;
     mainPage.openCameraButton.addEventListener('click', () => {
@@ -789,6 +947,10 @@ document.addEventListener('DOMContentLoaded', () => {
     cameraModal.closeButton.addEventListener('click', () => {
         cameraModal.modal.classList.add('hidden');
         if (stream) stream.getTracks().forEach(track => track.stop());
+        if (aiCameraLoopId) {
+            cancelAnimationFrame(aiCameraLoopId);
+            aiCameraLoopId = null;
+        }
     });
     
     cameraModal.filterOptions.addEventListener('click', (e) => {
@@ -825,17 +987,20 @@ document.addEventListener('DOMContentLoaded', () => {
             c.height = v.videoHeight;
             const ctx = c.getContext('2d');
             
-            const filters = {
-                'filter-none': 'none',
-                'filter-soft': 'contrast(1.1) saturate(1.1) brightness(1.05)',
-                'filter-beauty': 'contrast(0.9) brightness(1.1) saturate(1.05)',
-                'filter-warm': 'sepia(0.15) saturate(1.2) brightness(1.05)',
-                'filter-bright': 'brightness(1.2) contrast(1.05)',
-                'filter-vivid': 'saturate(1.4) contrast(1.1)'
-            };
-
-            ctx.filter = filters[activeFilterClass] || 'none';
-            ctx.drawImage(v, 0, 0, c.width, c.height);
+            if (aiModeEnabled && cameraModal.aiPreviewCanvas.width > 0) {
+                ctx.drawImage(cameraModal.aiPreviewCanvas, 0, 0, c.width, c.height);
+            } else {
+                const filters = {
+                    'filter-none': 'none',
+                    'filter-soft': 'contrast(1.1) saturate(1.1) brightness(1.05)',
+                    'filter-beauty': 'contrast(0.9) brightness(1.1) saturate(1.05)',
+                    'filter-warm': 'sepia(0.15) saturate(1.2) brightness(1.05)',
+                    'filter-bright': 'brightness(1.2) contrast(1.05)',
+                    'filter-vivid': 'saturate(1.4) contrast(1.1)'
+                };
+                ctx.filter = filters[activeFilterClass] || 'none';
+                ctx.drawImage(v, 0, 0, c.width, c.height);
+            }
 
             state.imageBase64 = c.toDataURL('image/jpeg', 0.8);
             mainPage.photoPreview.src = state.imageBase64;
